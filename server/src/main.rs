@@ -23,6 +23,7 @@ pub enum ServerMessage {
 }
 
 type OutBoundChannel = mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>;
+type States = Arc<RwLock<HashMap<usize, RemoteState>>>;
 type Users = Arc<RwLock<HashMap<usize, OutBoundChannel>>>;
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -69,19 +70,38 @@ async fn main() {
     pretty_env_logger::init();
 
     let users = Users::default();
+    let states = States::default();
+
+    let arc_users = users.clone();
+    let arc_states = states.clone();
+
+    tokio::spawn(async move { update_loop(arc_users, arc_states).await });
 
     let users = warp::any().map(move || users.clone());
+    let states = warp::any().map(move || states.clone());
 
     let game = warp::path("game")
         .and(warp::ws())
         .and(users)
-        .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| user_connected(socket, users)));
+        .and(states)
+        .map(|ws: warp::ws::Ws, users, states| {
+            ws.on_upgrade(move |socket| user_connected(socket, users, states))
+        });
 
     let status = warp::path!("status").map(move || warp::reply::html("hello"));
 
     let routes = status.or(game);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
+}
+
+fn parse_message(msg: Message) -> Option<ClientMessage> {
+    if msg.is_binary() {
+        let msg = msg.into_bytes();
+        serde_json::from_slice::<ClientMessage>(msg.as_slice()).ok()
+    } else {
+        None
+    }
 }
 
 async fn send_msg(tx: &OutBoundChannel, msg: &ServerMessage) {
@@ -102,7 +122,34 @@ async fn send_welcome(out: &OutBoundChannel) -> usize {
     id
 }
 
-async fn user_connected(ws: WebSocket, users: Users) {
+async fn update_loop(users: Users, states: States) {
+    loop {
+        let states: Vec<RemoteState> = states.read().await.values().cloned().collect();
+
+        if !states.is_empty() {
+            for (&uid, tx) in users.read().await.iter() {
+                let states = states
+                    .iter()
+                    .filter_map(|state| {
+                        if state.id == uid {
+                            None
+                        } else {
+                            Some(state.clone())
+                        }
+                    })
+                    .collect();
+
+                let states = ServerMessage::Update(states);
+
+                send_msg(tx, &states).await;
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+async fn user_connected(ws: WebSocket, users: Users, states: States) {
     use futures_util::StreamExt;
 
     let (ws_sender, mut ws_receiver) = ws.split();
@@ -119,17 +166,35 @@ async fn user_connected(ws: WebSocket, users: Users) {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
-                log::warn!("websocket receive error: '{}'", e);
+                log::warn!("websocket err (id={}): '{}'", my_id, e);
                 break;
             }
         };
 
         log::debug!("user sent message: {:?}", msg);
+
+        if let Some(msg) = parse_message(msg) {
+            user_message(my_id, msg, &states).await;
+        }
     }
 
     log::debug!("user disconnected: {}", my_id);
 
     users.write().await.remove(&my_id);
+    states.write().await.remove(&my_id);
 
     broadcast(ServerMessage::GoodBye(my_id), &users).await;
+}
+
+async fn user_message(my_id: usize, msg: ClientMessage, states: &States) {
+    match msg {
+        ClientMessage::State(state) => {
+            let msg = RemoteState {
+                id: my_id,
+                position: state.pos,
+                rotation: state.r,
+            };
+            states.write().await.insert(msg.id, msg);
+        }
+    }
 }
