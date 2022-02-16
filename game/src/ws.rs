@@ -1,5 +1,5 @@
 use std::net::TcpStream;
-use tungstenite::{client::connect, stream::MaybeTlsStream, WebSocket};
+use tungstenite::{client::connect, stream::MaybeTlsStream, Message, WebSocket};
 
 pub struct Connection {
     socket: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
@@ -18,5 +18,16 @@ impl Connection {
 
             self.socket = Some(socket);
         }
+    }
+
+    pub fn poll(&mut self) -> Option<Vec<u8>> {
+        if let Some(socket) = &mut self.socket {
+            if let Ok(msg) = socket.read_message() {
+                if let Message::Binary(buf) = msg {
+                    return Some(buf);
+                }
+            }
+        }
+        None
     }
 }
