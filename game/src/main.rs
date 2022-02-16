@@ -1,5 +1,7 @@
 use macroquad::prelude::*;
 
+mod ws;
+
 #[macroquad::main("game")]
 async fn main() {
     let mut game = Game::new().await;
