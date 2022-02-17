@@ -1,4 +1,6 @@
 use macroquad::prelude::*;
+use serde_json;
+use shared::ServerMessage;
 use ws::Connection;
 
 mod ws;
@@ -11,8 +13,12 @@ async fn main() {
     let mut game = Game::new().await;
 
     loop {
-        if let Some(msg) = connection.poll() {
-            println!("Message received! {:?}", msg);
+        if let Some(msg) = connection.poll() {     
+            if let ServerMessage::Welcome(welcome_msg) = 
+                serde_json::from_slice::<ServerMessage>(msg.as_slice())
+                    .expect("deserialization failed") {
+                println!("Welcome {}", welcome_msg);
+            }
         }
 
         game.update();
