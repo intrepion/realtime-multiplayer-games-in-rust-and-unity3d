@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use serde_json;
-use shared::ServerMessage;
+use shared::{RemoteState, ServerMessage};
 use ws::Connection;
 
 mod ws;
@@ -13,12 +13,10 @@ async fn main() {
     let mut game = Game::new().await;
 
     loop {
-        if let Some(msg) = connection.poll() {     
-            if let ServerMessage::Welcome(welcome_msg) = 
-                serde_json::from_slice::<ServerMessage>(msg.as_slice())
-                    .expect("deserialization failed") {
-                println!("Welcome {}", welcome_msg);
-            }
+        if let Some(msg) = connection.poll() {
+            let msg: ServerMessage =
+                serde_json::from_slice(msg.as_slice()).expect("deserialization failed");
+            game.handle_message(msg);
         }
 
         game.update();
@@ -35,8 +33,9 @@ async fn main() {
 
 pub struct Game {
     pub quit: bool,
-    pub player_state: PlayerState,
+    pub player_state: RemoteState,
     pub texture: Texture2D,
+    pub remote_states: Vec<RemoteState>,
 }
 
 impl Game {
@@ -45,11 +44,13 @@ impl Game {
 
         Self {
             quit: false,
-            player_state: PlayerState {
+            player_state: RemoteState {
+                id: 0,
                 position: Vec2::new(100f32, 100f32),
                 rotation: 0f32,
             },
             texture,
+            remote_states: Vec::new(),
         }
     }
 
@@ -110,11 +111,18 @@ impl Game {
             },
         );
     }
-}
 
-pub struct PlayerState {
-    pub position: Vec2,
-    pub rotation: f32,
+    pub fn handle_message(&mut self, msg: ServerMessage) {
+        match msg {
+            ServerMessage::Welcome(id) => {
+                self.player_state.id = id;
+            }
+            ServerMessage::GoodBye(_) => {
+                todo!();
+            }
+            ServerMessage::Update(remote_states) => self.remote_states = remote_states,
+        }
+    }
 }
 
 fn draw_box(pos: Vec2, size: Vec2) {
