@@ -131,8 +131,8 @@ async fn main() {
 
     loop {
         let state = ClientMessage::State(State {
-            position: game.player_state.position,
-            rotation: game.player_state.rotation,
+            pos: game.player_state.position,
+            r: game.player_state.rotation,
         });
         client_send(&state, &mut connection);
 

@@ -17,8 +17,8 @@ pub enum ServerMessage {
  
 #[derive(Deserialize, Serialize, Clone)]
 pub struct State {
-    pub position: Vec2,
-    pub rotation: f32,
+    pub pos: Vec2,
+    pub r: f32,
 }
  
 #[derive(Deserialize, Serialize)]
