@@ -79,8 +79,8 @@ impl Game {
             ServerMessage::Welcome(id) => {
                 self.player_state.id = id;
             }
-            ServerMessage::GoodBye(_) => {
-                todo!();
+            ServerMessage::GoodBye(id) => {
+                self.remote_states.retain(|s| s.id != id);
             }
             ServerMessage::Update(remote_states) => self.remote_states = remote_states,
         }
