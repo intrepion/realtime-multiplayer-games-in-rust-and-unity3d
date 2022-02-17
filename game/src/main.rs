@@ -5,31 +5,8 @@ use ws::Connection;
 
 mod ws;
 
-#[macroquad::main("game")]
-async fn main() {
-    let mut connection = Connection::new();
-    connection.connect("ws://localhost:3030/game");
-
-    let mut game = Game::new().await;
-
-    loop {
-        if let Some(msg) = connection.poll() {
-            let msg: ServerMessage =
-                serde_json::from_slice(msg.as_slice()).expect("deserialization failed");
-            game.handle_message(msg);
-        }
-
-        game.update();
-
-        game.draw();
-
-        if game.quit {
-            return;
-        }
-
-        next_frame().await
-    }
-}
+const PLANE_WIDTH: f32 = 100.;
+const PLANE_HEIGHT: f32 = 100.;
 
 pub struct Game {
     pub quit: bool,
@@ -40,7 +17,7 @@ pub struct Game {
 
 impl Game {
     pub async fn new() -> Self {
-        let texture = load_texture("assets/plane.png").await.unwrap();
+        let texture = load_texture("assets/planes.png").await.unwrap();
 
         Self {
             quit: false,
@@ -73,14 +50,14 @@ impl Game {
         self.player_state.position += vec2_from_angle(self.player_state.rotation) * SPEED;
 
         if self.player_state.position.x > screen_width() {
-            self.player_state.position.x = -self.texture.width();
-        } else if self.player_state.position.x < -self.texture.width() {
+            self.player_state.position.x = -PLANE_WIDTH;
+        } else if self.player_state.position.x < -PLANE_WIDTH {
             self.player_state.position.x = screen_width();
         }
 
         if self.player_state.position.y > screen_height() {
-            self.player_state.position.y = -self.texture.height();
-        } else if self.player_state.position.y < -self.texture.height() {
+            self.player_state.position.y = -PLANE_HEIGHT;
+        } else if self.player_state.position.y < -PLANE_HEIGHT {
             self.player_state.position.y = screen_height();
         }
     }
@@ -88,28 +65,13 @@ impl Game {
     pub fn draw(&self) {
         clear_background(color_u8!(0, 211, 205, 205));
 
-        draw_poly_lines(
-            self.player_state.position.x,
-            self.player_state.position.y,
-            3,
-            10.,
-            self.player_state.rotation * 180. / std::f32::consts::PI - 90.,
-            2.,
-            BLACK,
-        );
-
         draw_box(Vec2::new(200f32, 200f32), Vec2::new(10f32, 10f32));
 
-        draw_texture_ex(
-            self.texture,
-            self.player_state.position.x,
-            self.player_state.position.y,
-            WHITE,
-            DrawTextureParams {
-                rotation: self.player_state.rotation,
-                ..Default::default()
-            },
-        );
+        self.draw_plane(&self.player_state);
+
+        for state in &self.remote_states {
+            self.draw_plane(&state);
+        }
     }
 
     pub fn handle_message(&mut self, msg: ServerMessage) {
@@ -123,6 +85,30 @@ impl Game {
             ServerMessage::Update(remote_states) => self.remote_states = remote_states,
         }
     }
+
+    pub fn draw_plane(&self, state: &RemoteState) {
+        let cols = (self.texture.width() / PLANE_WIDTH).floor() as usize;
+        let index = state.id % 27;
+        let tx_x = index % cols;
+        let tx_y = index / cols;
+
+        draw_texture_ex(
+            self.texture,
+            state.position.x,
+            state.position.y,
+            WHITE,
+            DrawTextureParams {
+                source: Some(Rect::new(
+                    tx_x as f32 * PLANE_WIDTH,
+                    tx_y as f32 * PLANE_HEIGHT,
+                    PLANE_WIDTH,
+                    PLANE_HEIGHT,
+                )),
+                rotation: state.rotation,
+                ..Default::default()
+            },
+        );
+    }
 }
 
 fn draw_box(pos: Vec2, size: Vec2) {
@@ -130,6 +116,32 @@ fn draw_box(pos: Vec2, size: Vec2) {
     let upper_left = pos - size;
 
     draw_rectangle(upper_left.x, upper_left.y, dimension.x, dimension.y, BLACK);
+}
+
+#[macroquad::main("game")]
+async fn main() {
+    let mut connection = Connection::new();
+    connection.connect("ws://localhost:3030/game");
+
+    let mut game = Game::new().await;
+
+    loop {
+        if let Some(msg) = connection.poll() {
+            let msg: ServerMessage =
+                serde_json::from_slice(msg.as_slice()).expect("deserialization failed");
+            game.handle_message(msg);
+        }
+
+        game.update();
+
+        game.draw();
+
+        if game.quit {
+            return;
+        }
+
+        next_frame().await
+    }
 }
 
 pub fn vec2_from_angle(angle: f32) -> Vec2 {
