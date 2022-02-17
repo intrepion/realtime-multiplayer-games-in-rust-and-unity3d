@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use serde_json;
-use shared::{RemoteState, ServerMessage};
+use shared::{ClientMessage, RemoteState, ServerMessage, State};
 use ws::Connection;
 
 mod ws;
@@ -48,6 +48,10 @@ impl Game {
         const SPEED: f32 = 0.6;
 
         self.player_state.position += vec2_from_angle(self.player_state.rotation) * SPEED;
+
+        for state in &mut self.remote_states {
+            state.position += vec2_from_angle(state.rotation) * SPEED;
+        }
 
         if self.player_state.position.x > screen_width() {
             self.player_state.position.x = -PLANE_WIDTH;
@@ -126,6 +130,12 @@ async fn main() {
     let mut game = Game::new().await;
 
     loop {
+        let state = ClientMessage::State(State {
+            position: game.player_state.position,
+            rotation: game.player_state.rotation,
+        });
+        client_send(&state, &mut connection);
+
         if let Some(msg) = connection.poll() {
             let msg: ServerMessage =
                 serde_json::from_slice(msg.as_slice()).expect("deserialization failed");
@@ -147,4 +157,9 @@ async fn main() {
 pub fn vec2_from_angle(angle: f32) -> Vec2 {
     let angle = angle - std::f32::consts::FRAC_PI_2;
     Vec2::new(angle.cos(), angle.sin())
+}
+
+pub fn client_send(msg: &ClientMessage, connection: &mut Connection) {
+    let bytes = serde_json::to_vec(msg).expect("serialization failed");
+    connection.send(bytes);
 }
